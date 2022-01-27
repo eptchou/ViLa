@@ -1,0 +1,86 @@
+library(compiler)
+library(tseries)
+library(dendextend)
+
+plr = function(i,test.df,a2,b2,loc){
+  tt = bind_rows(test.df[i,],a2)
+  tt_dist = as.matrix(dist(tt[,loc])) 
+  k20 = names(sort(tt_dist[1,-1])[1:min(c(k,length(a2),length(b2)))])
+  k20 = na.remove(k20)
+  
+  p1 = length(which(tt_dist[k20,k20][lower.tri(tt_dist[k20,k20],diag=F)]>=median(sort(tt_dist[1,-1])[1:k],na.rm=T)
+  ))/length(tt_dist[k20,k20][lower.tri(tt_dist[k20,k20],diag=F)])
+  tt2 = bind_rows(test.df[i,],b2) 
+  tt2_dist = as.matrix(dist(tt2[,loc]))
+  k202 = names(sort(tt2_dist[1,-1])[1:min(c(k,length(a2),length(b2)))])
+  k202 = na.remove(k202)
+  
+  p2 = length(which(tt2_dist[k202,k202][lower.tri(tt2_dist[k202,k202],diag=F)]>=median(sort(tt2_dist[1,-1])[1:k],na.rm=T)
+  ))/length(tt2_dist[k202,k202][lower.tri(tt2_dist[k202,k202],diag=F)])
+  if(p1==0&p2==0){
+    return(c("zero","zero"))
+  }
+  else{
+    return(c(p1,p2))
+  }
+  
+}
+plr = cmpfun(plr)
+
+###############################################################
+library(tidyverse)
+library(magrittr)
+library(dendextend)
+
+
+auto_predict=function(test_data,loc){
+  dend_star=as.dendrogram(label_tree(train_data,train_data$clus,loc))
+  subtree = partition_leaves(dend_star)
+  leaves = subtree[[1]] ## extract all leaves
+  # get the path of leaf: nodes in order when you go from top to bottom
+  pathRoutes = function(leaf) {
+    which(sapply(subtree, function(x) leaf %in% x))
+  }
+  ## return the path for each leaf denoted by nodes:
+  paths = lapply(leaves, pathRoutes)
+  ## 1/0 path for each node
+  one_zero_path = function(i,j){
+    leave_i = paths[[i]]
+    path1 = leave_i[j]
+    return(ifelse(leave_i[(j+1)] == path1+1,0,1))
+  }
+  m = max(lengths(paths))
+  cp = matrix(0,length(leaves),m)
+  for(i in 1:length(leaves)){
+    for(j in 1:m){
+      cp[i,j] = one_zero_path(i,j)
+    }
+  }
+  rownames(cp) = leaves
+  cp %<>% as.data.frame()
+  coding_length = rowSums(!is.na(cp))
+  cp$coding_length = coding_length
+  cp$leave=rownames(cp)
+  temp_cp=cp
+  predict=c()
+  for(z in 1:nrow(test_data)){
+    cp=temp_cp
+    repeat{
+      right_hand_data=train_data[which(train_data$clus %in% cp$leave[which(cp[,1]==1)]),]
+      left_hand_data=train_data[which(train_data$clus %in% cp$leave[which(cp[,1]==0)]),]
+      if(plr(z,test_data,left_hand_data,right_hand_data,loc)[2]>plr(z,test_data,left_hand_data,right_hand_data,loc)[1]){
+        status=1
+      }
+      else{
+        status=0
+      }
+      cp=cp[which(cp[,1]==status),-1]
+      if(nrow(cp)==1){
+        predict[z]=as.numeric(cp$leave)
+        break
+      }
+    }
+  }
+  return(predict)
+}
+auto_predict=cmpfun(auto_predict)
